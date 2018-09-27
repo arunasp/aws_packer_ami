@@ -1,0 +1,153 @@
+{
+  "variables": {
+    "dns_server": "8.8.8.8",
+    "aws_access_key": "{{env `AWS_ACCESS_KEY_ID`}}",
+    "aws_secret_key": "{{env `AWS_SECRET_ACCESS_KEY`}}",
+    "profile": "{{env `AWS_PROFILE`}}",
+    "aws_region": "{{env `AWS_DEFAULT_REGION`}}",
+    "cpus": "1",
+    "ram": "512",
+    "hw_version": "10",
+    "box_suffix": "{{isotime \"200601021504\"}}",
+    "iso_url": "http://releases.ubuntu.com/16.04/ubuntu-16.04.5-server-amd64.iso",
+    "iso_checksum_type": "sha256",
+    "iso_checksum": "c94de1cc2e10160f325eb54638a5b5aa38f181d60ee33dae9578d96d932ee5f8",
+    "s3_bucket_name": "ami-packer",
+    "ami_name": "ubuntu-xenial-base_{{isotime \"200601021504\"}}",
+    "ami_role_name": "vmimport",
+    "ansible_file": "/tmp/ansible_repository.tar.gz"
+  },
+  "builders": [
+    {
+      "type": "vmware-iso",
+      "name": "ubuntu-xenial-base_{{user `box_suffix`}}",
+      "headless": "true",
+      "boot_command": [
+        "<enter><wait><f6><esc><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs>",
+        "<bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs>",
+        "<bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs>",
+        "<bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs><bs>",
+        "/install/vmlinuz<wait>",
+        " auto<wait>",
+        " console-setup/ask_detect=false<wait>",
+        " console-setup/layoutcode=us<wait>",
+        " console-setup/modelcode=pc105<wait>",
+        " debconf/frontend=noninteractive<wait>",
+        " debian-installer=en_GB<wait>",
+        " fb=false<wait>",
+        " initrd=/install/initrd.gz<wait>",
+        " kbd-chooser/method=us<wait>",
+        " keyboard-configuration/layout=UK<wait>",
+        " keyboard-configuration/variant=UK<wait>",
+        " locale=en_GB.UTF-8<wait>",
+        " netcfg/get_hostname=ubuntu-1604<wait>",
+        " netcfg/get_domain=gel.zone<wait>",
+        " grub-installer/bootdev=/dev/sda<wait>",
+        " noapic<wait>",
+        " preseed/url=http://{{ .HTTPIP }}:{{ .HTTPPort }}/preseed.cfg",
+        " -- <wait>",
+        "<enter><wait>"
+      ],
+      "format": "ova",
+      "boot_wait": "10s",
+      "disk_size": 10240,
+      "disk_adapter_type": "ide",
+      "disk_type_id": 0,
+      "guest_os_type": "ubuntu-64",
+      "http_directory": "unattended",
+      "iso_url": "{{user `iso_url`}}",
+      "iso_checksum": "{{user `iso_checksum`}}",
+      "iso_checksum_type": "{{user `iso_checksum_type`}}",
+      "ssh_username": "root",
+      "ssh_password": "ubuntu",
+      "ssh_port": 22,
+      "ssh_wait_timeout": "10000s",
+      "shutdown_command": "shutdown -P now",
+      "version": "{{user `hw_version`}}",
+      "vmdk_name": "root",
+      "vmx_remove_ethernet_interfaces": "true",
+      "vmx_data": {
+        "memsize": "{{user `ram` }}",
+        "numvcpus": "{{user `cpus` }}",
+        "cpuid.coresPerSocket": "1",
+        "ethernet0.virtualdev" : "vmxnet3"
+      },
+      "vmx_data_post": {
+        "ide1.0.present": "FALSE"
+      }
+    }
+  ],
+  "provisioners": [
+    {
+      "type": "file",
+      "source": "{{ user `ansible_file` }}",
+      "destination": "/tmp/ansible.tar.gz"
+    },
+    {
+      "type": "shell",
+      "execute_command" : "echo 'packer' | sudo -S env {{ .Vars }} {{ .Path }}",
+      "scripts": [
+        "scripts/ubuntu/base.sh",
+        "scripts/ubuntu/aws_kernel_install.sh",
+        "scripts/ubuntu/aws_configure_netif.sh",
+        "scripts/deploy_user.sh",
+        "scripts/ubuntu/ansible_install.sh",
+        "scripts/ubuntu/aws_cfn_install.sh",
+        "scripts/ubuntu/ansible_bootstrap.sh"
+      ]
+    },
+    {
+      "type": "shell",
+      "inline": [
+        "sudo apt-get -y purge resolvconf",
+        "sudo rm -rf /etc/resolv.conf && sudo rm -rf /run/resolvconf/resolv.conf",
+        "echo 'nameserver {{user `dns_server`}}' | sudo tee -a /etc/resolv.conf"
+      ]
+    },
+    {
+      "type": "shell",
+      "execute_command" : "echo 'packer' | sudo -S env {{ .Vars }} {{ .Path }}",
+      "scripts": [
+        "scripts/ubuntu/regenerate_ssh_host_keys.sh",
+        "scripts/ubuntu/cleanup.sh"
+      ]
+    }
+  ],
+  "post-processors" : [
+     [
+        {
+          "type": "checksum"
+        },
+        {
+          "type": "shell-local",
+          "scripts": [
+            "scripts/vmx-to-ova.sh"
+          ]
+        },
+        {
+         "type": "artifice",
+         "files": [
+           "output-ubuntu-xenial-base_{{user `box_suffix`}}/*.ova"
+         ]
+        },
+        {
+          "type": "amazon-import",
+          "access_key": "{{user `aws_access_key`}}",
+          "secret_key": "{{user `aws_secret_key`}}",
+          "profile": "{{ user `profile` }}",
+          "region": "{{user `aws_region`}}",
+          "s3_bucket_name": "{{user `s3_bucket_name`}}",
+          "ami_name": "{{ user `ami_name` }}",
+          "s3_key_name": "{{ user `ami_name` }}.ova",
+          "role_name": "{{ user `ami_role_name` }}",
+          "license_type": "BYOL",
+          "tags": {
+            "OS_Provider": "Ubuntu",
+            "OS_Version": "16.04",
+            "OS_Code_Name": "Xenial",
+            "OS_Version_Full": "Ubuntu 16.04 Xenial"
+          }
+        }
+    ]
+  ]
+}
