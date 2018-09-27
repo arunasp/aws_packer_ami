@@ -7,6 +7,7 @@ This repository contains Packer configuration files required to create AWS AMI f
 Requirements
 ------------
 
+- Virtualizarion software - Oracle Virtualbox or VMWare Workstation/Player
 - Packer - https://packer.io
 - AWS CLI with profiles - https://aws.amazon.com/cli
 - S3 bucket for storring OVA images. The default bucket name is 'ami-packer'
